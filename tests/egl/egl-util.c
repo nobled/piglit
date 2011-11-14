@@ -70,9 +70,9 @@ egl_util_create_pixmap(struct egl_state *state,
 }
 
 static void
-create_window(struct egl_state *state)
+create_window(struct egl_x11_state *x11)
 {
-	struct egl_x11_state *x11 = (struct egl_x11_state *)state;
+	struct egl_state *state = &x11->base;
 	XSetWindowAttributes window_attr;
 	XVisualInfo template, *vinfo;
 	EGLint id;
@@ -113,7 +113,7 @@ create_window(struct egl_state *state)
 }
 
 static enum piglit_result
-event_loop(struct egl_state *state, const struct egl_test *test)
+x11_event_loop(struct egl_state *state, const struct egl_test *test)
 {
 	struct egl_x11_state *x11 = (struct egl_x11_state *)state;
 	XEvent event;
@@ -156,11 +156,59 @@ check_extensions(struct egl_state *state, const struct egl_test *test)
 	}
 }
 
+static struct egl_state *
+x11_create_state(void)
+{
+	struct egl_x11_state *x11 = malloc(sizeof *x11);
+
+	if (!x11) {
+		fprintf(stderr, "Out of memory\n");
+		piglit_report_result(PIGLIT_SKIP);
+	}
+
+	x11->dpy = XOpenDisplay(NULL);
+	if (x11->dpy == NULL) {
+		fprintf(stderr, "couldn't open display\n");
+		piglit_report_result(PIGLIT_FAIL);
+	}
+
+	x11->base.egl_dpy = eglGetDisplay(x11->dpy);
+	if (x11->base.egl_dpy == EGL_NO_DISPLAY) {
+		fprintf(stderr, "eglGetDisplay() failed\n");
+		piglit_report_result(PIGLIT_FAIL);
+	}
+
+	return &x11->base;
+}
+
+static void
+x11_destroy_state(struct egl_state *state)
+{
+	struct egl_x11_state *x11 = (struct egl_x11_state*)state;
+
+	free(x11);
+}
+
+static EGLSurface
+x11_create_window(struct egl_state *state)
+{
+	struct egl_x11_state *x11 = (struct egl_x11_state*)state;
+	EGLSurface surf;
+	create_window(x11);
+
+	surf = eglCreateWindowSurface(state->egl_dpy,
+				      state->cfg, x11->win, NULL);
+	if (surf == EGL_NO_SURFACE) {
+		fprintf(stderr, "eglCreateWindowSurface() failed\n");
+		piglit_report_result(PIGLIT_FAIL);
+	}
+	return surf;
+}
+
 int
 egl_util_run(const struct egl_test *test, int argc, char *argv[])
 {
-	struct egl_x11_state x11;
-	struct egl_state *state = &x11.base;
+	struct egl_state *state;
 	EGLint count;
 	enum piglit_result result;
 	int i;
@@ -172,12 +220,6 @@ egl_util_run(const struct egl_test *test, int argc, char *argv[])
 			fprintf(stderr, "Unknown option: %s\n", argv[i]);
 	}
 
-	x11.dpy = XOpenDisplay(NULL);
-	if (x11.dpy == NULL) {
-		fprintf(stderr, "couldn't open display\n");
-		piglit_report_result(PIGLIT_FAIL);
-	}
-
 	for (count = 0; test->config_attribs[count] != EGL_NONE; count += 2) {
 		if (test->config_attribs[count] == EGL_RENDERABLE_TYPE &&
 		    test->config_attribs[count+1] == EGL_OPENGL_BIT) {
@@ -185,12 +227,7 @@ egl_util_run(const struct egl_test *test, int argc, char *argv[])
 		}
 	}
 
-
-	state->egl_dpy = eglGetDisplay(x11.dpy);
-	if (state->egl_dpy == EGL_NO_DISPLAY) {
-		fprintf(stderr, "eglGetDisplay() failed\n");
-		piglit_report_result(PIGLIT_FAIL);
-	}
+	state = x11_create_state();
 
 	if (!eglInitialize(state->egl_dpy, &state->major, &state->minor)) {
 		fprintf(stderr, "eglInitialize() failed\n");
@@ -214,14 +251,8 @@ egl_util_run(const struct egl_test *test, int argc, char *argv[])
 
 	state->width = test->window_width;
 	state->height = test->window_height;
-	create_window(state);
 
-	state->surf = eglCreateWindowSurface(state->egl_dpy,
-					    state->cfg, x11.win, NULL);
-	if (state->surf == EGL_NO_SURFACE) {
-		fprintf(stderr, "eglCreateWindowSurface() failed\n");
-		piglit_report_result(PIGLIT_FAIL);
-	}
+	state->surf = x11_create_window(state);
 
 	if (!eglMakeCurrent(state->egl_dpy,
 			    state->surf, state->surf, state->ctx)) {
@@ -229,9 +260,11 @@ egl_util_run(const struct egl_test *test, int argc, char *argv[])
 		piglit_report_result(PIGLIT_FAIL);
 	}
 
-	result = event_loop(state, test);
+	result = x11_event_loop(state, test);
 
 	eglTerminate(state->egl_dpy);
+
+	x11_destroy_state(state);
 
 	piglit_report_result(result);
 
