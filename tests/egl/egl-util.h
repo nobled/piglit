@@ -9,16 +9,10 @@
 #ifndef EGL_UTIL_H
 #define EGL_UTIL_H
 
-#include <X11/Xlib.h>
-#include <X11/Xutil.h>
-#include <X11/keysym.h>
-#include <GL/gl.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 
 struct egl_state {
-	Display *dpy;
-	Window win;
 	EGLDisplay egl_dpy;
 	EGLConfig cfg;
 	EGLContext ctx;

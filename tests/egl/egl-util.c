@@ -31,7 +31,10 @@
  */
 
 #include "piglit-util.h"
-#include "egl-util.h"
+#include "egl-x11-util.h"
+
+#include <X11/Xutil.h>
+#include <X11/keysym.h>
 
 static int automatic;
 
@@ -53,10 +56,11 @@ EGLSurface
 egl_util_create_pixmap(struct egl_state *state,
 		       int width, int height, const EGLint *attribs)
 {
+	struct egl_x11_state *x11 = (struct egl_x11_state *)state;
 	Pixmap pixmap;
 	EGLSurface surf;
 
-	pixmap = XCreatePixmap(state->dpy, state->win,
+	pixmap = XCreatePixmap(x11->dpy, x11->win,
 			       width, height, state->depth);
 
 	surf = eglCreatePixmapSurface(state->egl_dpy, state->cfg,
@@ -68,12 +72,13 @@ egl_util_create_pixmap(struct egl_state *state,
 static void
 create_window(struct egl_state *state)
 {
+	struct egl_x11_state *x11 = (struct egl_x11_state *)state;
 	XSetWindowAttributes window_attr;
 	XVisualInfo template, *vinfo;
 	EGLint id;
 	unsigned long mask;
-	int screen = DefaultScreen(state->dpy);
-	Window root_win = RootWindow(state->dpy, screen);
+	int screen = DefaultScreen(x11->dpy);
+	Window root_win = RootWindow(x11->dpy, screen);
 	int count;
 
 	if (!eglGetConfigAttrib(state->egl_dpy,
@@ -83,7 +88,7 @@ create_window(struct egl_state *state)
 	}
 
 	template.visualid = id;
-	vinfo = XGetVisualInfo(state->dpy, VisualIDMask, &template, &count);
+	vinfo = XGetVisualInfo(x11->dpy, VisualIDMask, &template, &count);
 	if (count != 1) {
 		fprintf(stderr, "XGetVisualInfo() failed\n");
 		piglit_report_result(PIGLIT_FAIL);
@@ -92,17 +97,17 @@ create_window(struct egl_state *state)
 	state->depth = vinfo->depth;
 	window_attr.background_pixel = 0;
 	window_attr.border_pixel = 0;
-	window_attr.colormap = XCreateColormap(state->dpy, root_win,
+	window_attr.colormap = XCreateColormap(x11->dpy, root_win,
 					       vinfo->visual, AllocNone);
 	window_attr.event_mask =
 		StructureNotifyMask | ExposureMask | KeyPressMask;
 	mask = CWBackPixel | CWBorderPixel | CWColormap | CWEventMask;
-	state->win = XCreateWindow(state->dpy, root_win, 0, 0,
-				   state->width, state->height,
-				   0, vinfo->depth, InputOutput,
-				   vinfo->visual, mask, &window_attr);
+	x11->win = XCreateWindow(x11->dpy, root_win, 0, 0,
+				 state->width, state->height,
+				 0, vinfo->depth, InputOutput,
+				 vinfo->visual, mask, &window_attr);
 
-	XMapWindow(state->dpy, state->win);
+	XMapWindow(x11->dpy, x11->win);
 
 	XFree(vinfo);
 }
@@ -110,11 +115,12 @@ create_window(struct egl_state *state)
 static enum piglit_result
 event_loop(struct egl_state *state, const struct egl_test *test)
 {
+	struct egl_x11_state *x11 = (struct egl_x11_state *)state;
 	XEvent event;
 	enum piglit_result result = PIGLIT_FAIL;
 
 	while (1) {
-		XNextEvent (state->dpy, &event);
+		XNextEvent (x11->dpy, &event);
 
 		if (event.type == Expose) {
 			result = test->draw(state);
@@ -123,7 +129,7 @@ event_loop(struct egl_state *state, const struct egl_test *test)
 		}
 
 		if (event.type == KeyPress) {
-			KeySym sym = XKeycodeToKeysym (state->dpy,
+			KeySym sym = XKeycodeToKeysym (x11->dpy,
 						       event.xkey.keycode, 0);
 
 			if (sym == XK_Escape || sym == XK_q || sym == XK_Q)
@@ -153,7 +159,8 @@ check_extensions(struct egl_state *state, const struct egl_test *test)
 int
 egl_util_run(const struct egl_test *test, int argc, char *argv[])
 {
-	struct egl_state state;
+	struct egl_x11_state x11;
+	struct egl_state *state = &x11.base;
 	EGLint count;
 	enum piglit_result result;
 	int i;
@@ -165,8 +172,8 @@ egl_util_run(const struct egl_test *test, int argc, char *argv[])
 			fprintf(stderr, "Unknown option: %s\n", argv[i]);
 	}
 
-	state.dpy = XOpenDisplay(NULL);
-	if (state.dpy == NULL) {
+	x11.dpy = XOpenDisplay(NULL);
+	if (x11.dpy == NULL) {
 		fprintf(stderr, "couldn't open display\n");
 		piglit_report_result(PIGLIT_FAIL);
 	}
@@ -179,52 +186,52 @@ egl_util_run(const struct egl_test *test, int argc, char *argv[])
 	}
 
 
-	state.egl_dpy = eglGetDisplay(state.dpy);
-	if (state.egl_dpy == EGL_NO_DISPLAY) {
+	state->egl_dpy = eglGetDisplay(x11.dpy);
+	if (state->egl_dpy == EGL_NO_DISPLAY) {
 		fprintf(stderr, "eglGetDisplay() failed\n");
 		piglit_report_result(PIGLIT_FAIL);
 	}
 
-	if (!eglInitialize(state.egl_dpy, &state.major, &state.minor)) {
+	if (!eglInitialize(state->egl_dpy, &state->major, &state->minor)) {
 		fprintf(stderr, "eglInitialize() failed\n");
 		piglit_report_result(PIGLIT_FAIL);
 	}
 
-	check_extensions(&state, test);
+	check_extensions(state, test);
 
-	if (!eglChooseConfig(state.egl_dpy, test->config_attribs, &state.cfg, 1, &count) ||
-	    count == 0) {
+	if (!eglChooseConfig(state->egl_dpy, test->config_attribs,
+	                     &state->cfg, 1, &count) || count == 0) {
 		fprintf(stderr, "eglChooseConfig() failed\n");
 		piglit_report_result(PIGLIT_FAIL);
 	}
 
-	state.ctx = eglCreateContext(state.egl_dpy, state.cfg,
+	state->ctx = eglCreateContext(state->egl_dpy, state->cfg,
 				     EGL_NO_CONTEXT, NULL);
-	if (state.ctx == EGL_NO_CONTEXT) {
+	if (state->ctx == EGL_NO_CONTEXT) {
 		fprintf(stderr, "eglCreateContext() failed\n");
 		piglit_report_result(PIGLIT_FAIL);
 	}
 
-	state.width = test->window_width;
-	state.height = test->window_height;
-	create_window(&state);
+	state->width = test->window_width;
+	state->height = test->window_height;
+	create_window(state);
 
-	state.surf = eglCreateWindowSurface(state.egl_dpy,
-					    state.cfg, state.win, NULL);
-	if (state.surf == EGL_NO_SURFACE) {
+	state->surf = eglCreateWindowSurface(state->egl_dpy,
+					    state->cfg, x11.win, NULL);
+	if (state->surf == EGL_NO_SURFACE) {
 		fprintf(stderr, "eglCreateWindowSurface() failed\n");
 		piglit_report_result(PIGLIT_FAIL);
 	}
 
-	if (!eglMakeCurrent(state.egl_dpy,
-			    state.surf, state.surf, state.ctx)) {
+	if (!eglMakeCurrent(state->egl_dpy,
+			    state->surf, state->surf, state->ctx)) {
 		fprintf(stderr, "eglMakeCurrent() failed\n");
 		piglit_report_result(PIGLIT_FAIL);
 	}
 
-	result = event_loop(&state, test);
+	result = event_loop(state, test);
 
-	eglTerminate(state.egl_dpy);
+	eglTerminate(state->egl_dpy);
 
 	piglit_report_result(result);
 

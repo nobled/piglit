@@ -35,7 +35,7 @@
  */
 
 #include "piglit-util.h"
-#include "egl-util.h"
+#include "egl-x11-util.h"
 
 static const EGLint pixmap_attribs[] = {
 	EGL_TEXTURE_FORMAT,	EGL_TEXTURE_RGB,
@@ -46,13 +46,15 @@ static const EGLint pixmap_attribs[] = {
 static enum piglit_result
 draw(struct egl_state *state)
 {
+	struct egl_x11_state *x11 = (struct egl_x11_state *)state;
+	EGLNativeWindowType win = x11->win;
 	EGLSurface surf;
 
 	/* egl-util.c already has created state->surf from state->win,
 	 * so this should fail. */
 
 	surf = eglCreateWindowSurface(state->egl_dpy,
-				      state->cfg, state->win, NULL);
+				      state->cfg, win, NULL);
 	if (surf != EGL_NO_SURFACE) {
 		fprintf(stderr, "eglCreateWindowSurface() didn't fail\n");
 		piglit_report_result(PIGLIT_FAIL);
