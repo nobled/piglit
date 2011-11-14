@@ -12,6 +12,8 @@
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 
+struct egl_platform;
+
 struct egl_state {
 	EGLDisplay egl_dpy;
 	EGLConfig cfg;
@@ -21,6 +23,7 @@ struct egl_state {
 	int depth;
 	int width;
 	int height;
+	const struct egl_platform *platform;
 };
 
 struct egl_test {
@@ -29,7 +32,21 @@ struct egl_test {
 	enum piglit_result (*draw)(struct egl_state *state);
 	EGLint window_width;
 	EGLint window_height;
+	const struct egl_platform *platform;
 };
+
+struct egl_platform {
+	struct egl_state *(*create_state)(void);
+	EGLSurface (*create_window)(struct egl_state *);
+	EGLSurface (*create_pixmap)(struct egl_state *state, int w, int h,
+	                            const EGLint *attribs);
+	enum piglit_result (*run)(struct egl_state *, const struct egl_test *);
+	void (*destroy_state)(struct egl_state *);
+};
+
+#if defined(__unix__) || defined(__unix)
+extern const struct egl_platform x11_platform;
+#endif
 
 static const EGLint egl_default_attribs[] = {
 	EGL_SURFACE_TYPE, EGL_WINDOW_BIT | EGL_PIXMAP_BIT | EGL_PBUFFER_BIT,
@@ -43,6 +60,8 @@ static const EGLint egl_default_attribs[] = {
 
 static const EGLint egl_default_window_width = 300;
 static const EGLint egl_default_window_height = 300;
+
+extern int automatic;
 
 /**
  * \brief Initialize test to default values.
