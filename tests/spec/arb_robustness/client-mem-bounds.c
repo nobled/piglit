@@ -23,6 +23,8 @@
 
 #include "piglit-util.h"
 
+#include <limits.h>
+
 int piglit_width = 320, piglit_height = 320;
 int piglit_window_mode = GLUT_RGB;
 
@@ -41,23 +43,21 @@ void piglit_init(int argc, char **argv)
 }
 
 static GLboolean
-succeeded(int offby)
+succeeded(GLsizei bufSize, GLsizei required)
 {
-    GLboolean should_error = (offby < 0);
-    GLenum err = glGetError();
+    GLenum expected;
 
-    if (should_error) {
-        if (err == GL_INVALID_OPERATION)
-            return GL_TRUE;
-        fprintf(stderr, "Did not give GL_INVALID_OPERATION "
-                "with too small a buffer! (off by: %d)\n", offby);
-        return GL_FALSE;
-    } else {
-        if (err == GL_NO_ERROR)
-            return GL_TRUE;
-        fprintf(stderr, "Unexpected error! (off by: %d)\n", offby);
+    if (bufSize < required)
+        expected = GL_INVALID_OPERATION;
+    else
+        expected = GL_NO_ERROR;
+
+    if (!piglit_check_gl_error(expected)) {
+        fprintf(stderr, "(bufSize = %d, expected %d bytes to be required)\n",
+                          bufSize, required);
         return GL_FALSE;
     }
+    return GL_TRUE;
 }
 
 static enum piglit_result
@@ -79,29 +79,23 @@ do {\
 \
     glPixelTransferi(GL_MAP_COLOR, GL_FALSE);\
     glPixelMap##t##v(GL_PIXEL_MAP_R_TO_R, MAPSIZE, v);\
-    if (!succeeded(0))\
-        return PIGLIT_FAIL;\
     glPixelMap##t##v(GL_PIXEL_MAP_G_TO_G, MAPSIZE, v);\
-    if (!succeeded(0))\
-        return PIGLIT_FAIL;\
     glPixelMap##t##v(GL_PIXEL_MAP_B_TO_B, MAPSIZE, v);\
-    if (!succeeded(0))\
-        return PIGLIT_FAIL;\
     glPixelMap##t##v(GL_PIXEL_MAP_A_TO_A, MAPSIZE, v);\
-    if (!succeeded(0))\
+    if (!piglit_check_gl_error(GL_NO_ERROR))\
         return PIGLIT_FAIL;\
 \
     glGetnPixelMap##t##vARB(GL_PIXEL_MAP_R_TO_R, bufSize, v);\
-    if (!succeeded(offby))\
+    if (!succeeded(bufSize, sizeof v))\
         return PIGLIT_FAIL;\
     glGetnPixelMap##t##vARB(GL_PIXEL_MAP_G_TO_G, bufSize, v);\
-    if (!succeeded(offby))\
+    if (!succeeded(bufSize, sizeof v))\
         return PIGLIT_FAIL;\
     glGetnPixelMap##t##vARB(GL_PIXEL_MAP_B_TO_B, bufSize, v);\
-    if (!succeeded(offby))\
+    if (!succeeded(bufSize, sizeof v))\
         return PIGLIT_FAIL;\
     glGetnPixelMap##t##vARB(GL_PIXEL_MAP_A_TO_A, bufSize, v);\
-    if (!succeeded(offby))\
+    if (!succeeded(bufSize, sizeof v))\
         return PIGLIT_FAIL;\
 } while (0)
 
@@ -126,10 +120,10 @@ do {\
     glClear(GL_COLOR_BUFFER_BIT);\
 \
     glReadnPixelsARB(0, 0, width, height, GL_RGBA, GL_##enumtype, bufSize, v);\
-    if (!succeeded(offby))\
+    if (!succeeded(bufSize, sizeof v))\
         return PIGLIT_FAIL;\
     glReadnPixelsARB(1, 1, width, height, GL_RGBA, GL_##enumtype, bufSize, v);\
-    if (!succeeded(offby))\
+    if (!succeeded(bufSize, sizeof v))\
         return PIGLIT_FAIL;\
 } while (0)
 
@@ -151,11 +145,11 @@ test_stipple(int offby)
         pattern[i] = 0x55;
 
     glPolygonStipple(pattern);
-    if (!succeeded(0))
+    if (!piglit_check_gl_error(GL_NO_ERROR))
         return PIGLIT_FAIL;
 
     glGetnPolygonStippleARB(bufSize, pattern);
-    if (!succeeded(offby))
+    if (!succeeded(bufSize, sizeof pattern))
         return PIGLIT_FAIL;
 
     return PIGLIT_PASS;
@@ -194,11 +188,11 @@ do {\
 \
     glTexImage1D(GL_TEXTURE_1D, 0, GL_RGBA, width,\
                  0, GL_RGBA, GL_##enumtype, v);\
-    if (!succeeded(0))\
+    if (!piglit_check_gl_error(GL_NO_ERROR))\
         return PIGLIT_FAIL;\
 \
     glGetnTexImageARB(GL_TEXTURE_1D, 0, GL_RGBA, GL_##enumtype, bufSize, v);\
-    if (!succeeded(offby))\
+    if (!succeeded(bufSize, sizeof v))\
         return PIGLIT_FAIL;\
 } while(0)
 
@@ -222,11 +216,11 @@ do {\
 \
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height,\
                  0, GL_RGBA, GL_##enumtype, v);\
-    if (!succeeded(0))\
+    if (!piglit_check_gl_error(GL_NO_ERROR))\
         return PIGLIT_FAIL;\
 \
     glGetnTexImageARB(GL_TEXTURE_2D, 0, GL_RGBA, GL_##enumtype, bufSize, v);\
-    if (!succeeded(offby))\
+    if (!succeeded(bufSize, sizeof v))\
         return PIGLIT_FAIL;\
 } while(0)
 
@@ -250,11 +244,11 @@ do {\
 \
     glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA, width, height, depth,\
                  0, GL_RGBA, GL_##enumtype, v);\
-    if (!succeeded(0))\
+    if (!piglit_check_gl_error(GL_NO_ERROR))\
         return PIGLIT_FAIL;\
 \
     glGetnTexImageARB(GL_TEXTURE_3D, 0, GL_RGBA, GL_##enumtype, bufSize, v);\
-    if (!succeeded(offby))\
+    if (!succeeded(bufSize, sizeof v))\
         return PIGLIT_FAIL;\
 } while(0)
 
@@ -282,6 +276,8 @@ test(int offby)
     if (test_teximage(offby) != PIGLIT_PASS)
          return PIGLIT_FAIL;
 
+    assert(glGetError() == GL_NO_ERROR);
+
     return PIGLIT_PASS;
 }
 
@@ -293,9 +289,17 @@ piglit_display(void)
 
     glClear(GL_COLOR_BUFFER_BIT);
 
+    /* test negative inputs */
+    res = test(INT_MIN);
+    if (res != PIGLIT_PASS)
+        return res;
+
+    res = test(INT_MIN/2);
+    if (res != PIGLIT_PASS)
+        return res;
+
     for (i = -9; i <= 1; ++i) {
         res = test(i);
-        assert(glGetError() == GL_NO_ERROR);
         if (res != PIGLIT_PASS)
             break;
     }
