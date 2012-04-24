@@ -36,8 +36,8 @@ void piglit_init(int argc, char **argv)
 {
     piglit_ortho_projection(piglit_width, piglit_height, GL_FALSE);
 
-   if (!piglit_is_extension_supported("GL_ARB_robustness"))
-      piglit_report_result(PIGLIT_SKIP);
+    piglit_require_extension("GL_ARB_robustness");
+    piglit_require_extension("GL_ARB_pixel_buffer_object");
 
     glClearColor(0.2, 0.2, 0.2, 1.0);
 }
@@ -46,15 +46,18 @@ static GLboolean
 succeeded(GLsizei bufSize, GLsizei required)
 {
     GLenum expected;
+    GLuint pbo;
+    glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING_ARB, (GLint*)&pbo);
 
-    if (bufSize < required)
+    if (pbo == 0 && bufSize < required)
         expected = GL_INVALID_OPERATION;
     else
         expected = GL_NO_ERROR;
 
     if (!piglit_check_gl_error(expected)) {
-        fprintf(stderr, "(bufSize = %d, expected %d bytes to be required)\n",
-                          bufSize, required);
+        fprintf(stderr, "(PIXEL_PACK_BUFFER=%u, bufSize = %d,"
+                        " expected %d bytes to be required)\n",
+                          pbo, bufSize, required);
         return GL_FALSE;
     }
     return GL_TRUE;
@@ -64,10 +67,12 @@ static enum piglit_result
 test_pixelmap(int offby)
 {
 #define MAPSIZE 32
+    GLuint pbo;
+    glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING_ARB, (GLint*)&pbo);
 
 #define TEST_PIXMAP(type, t)\
 do {\
-    GL##type v[MAPSIZE];\
+    GL##type v[MAPSIZE], *data;\
     GLsizei bufSize = offby + (int)(sizeof v);\
     unsigned i;\
 \
@@ -85,16 +90,21 @@ do {\
     if (!piglit_check_gl_error(GL_NO_ERROR))\
         return PIGLIT_FAIL;\
 \
-    glGetnPixelMap##t##vARB(GL_PIXEL_MAP_R_TO_R, bufSize, v);\
+    if (pbo)\
+        glBufferDataARB(GL_PIXEL_PACK_BUFFER, sizeof v, NULL, GL_STREAM_COPY);\
+\
+    data = (pbo == 0) ? v : NULL;\
+\
+    glGetnPixelMap##t##vARB(GL_PIXEL_MAP_R_TO_R, bufSize, data);\
     if (!succeeded(bufSize, sizeof v))\
         return PIGLIT_FAIL;\
-    glGetnPixelMap##t##vARB(GL_PIXEL_MAP_G_TO_G, bufSize, v);\
+    glGetnPixelMap##t##vARB(GL_PIXEL_MAP_G_TO_G, bufSize, data);\
     if (!succeeded(bufSize, sizeof v))\
         return PIGLIT_FAIL;\
-    glGetnPixelMap##t##vARB(GL_PIXEL_MAP_B_TO_B, bufSize, v);\
+    glGetnPixelMap##t##vARB(GL_PIXEL_MAP_B_TO_B, bufSize, data);\
     if (!succeeded(bufSize, sizeof v))\
         return PIGLIT_FAIL;\
-    glGetnPixelMap##t##vARB(GL_PIXEL_MAP_A_TO_A, bufSize, v);\
+    glGetnPixelMap##t##vARB(GL_PIXEL_MAP_A_TO_A, bufSize, data);\
     if (!succeeded(bufSize, sizeof v))\
         return PIGLIT_FAIL;\
 } while (0)
@@ -111,18 +121,28 @@ do {\
 static enum piglit_result
 test_readpix(int offby)
 {
+    GLuint pbo;
+    glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING_ARB, (GLint*)&pbo);
+
 #define TEST_READPIX(gltype, enumtype) \
 do {\
-    GL##gltype v[4*width*height];\
+    GL##gltype v[4*width*height], *data;\
     GLsizei bufSize = offby + (int)(sizeof v);\
 \
     memset(v, 0, sizeof v);\
     glClear(GL_COLOR_BUFFER_BIT);\
 \
-    glReadnPixelsARB(0, 0, width, height, GL_RGBA, GL_##enumtype, bufSize, v);\
+    if (pbo)\
+        glBufferDataARB(GL_PIXEL_PACK_BUFFER, sizeof v, NULL, GL_STREAM_COPY);\
+\
+    data = (pbo == 0) ? v : NULL;\
+\
+    glReadnPixelsARB(0, 0, width, height, GL_RGBA,\
+                     GL_##enumtype, bufSize, data);\
     if (!succeeded(bufSize, sizeof v))\
         return PIGLIT_FAIL;\
-    glReadnPixelsARB(1, 1, width, height, GL_RGBA, GL_##enumtype, bufSize, v);\
+    glReadnPixelsARB(1, 1, width, height, GL_RGBA,\
+                     GL_##enumtype, bufSize, data);\
     if (!succeeded(bufSize, sizeof v))\
         return PIGLIT_FAIL;\
 } while (0)
@@ -137,19 +157,27 @@ do {\
 static enum piglit_result
 test_stipple(int offby)
 {
-    GLubyte pattern[4*32];
-    GLsizei bufSize = offby + (int)(sizeof pattern);
+    GLubyte v[4*32], *data;
+    GLsizei bufSize = offby + (int)(sizeof v);
     unsigned i;
+    GLuint pbo;
 
-    for (i = 0; i < sizeof pattern; i++)
-        pattern[i] = 0x55;
+    glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING_ARB, (GLint*)&pbo);
 
-    glPolygonStipple(pattern);
+    for (i = 0; i < sizeof v; i++)
+        v[i] = 0x55;
+
+    glPolygonStipple(v);
     if (!piglit_check_gl_error(GL_NO_ERROR))
         return PIGLIT_FAIL;
 
-    glGetnPolygonStippleARB(bufSize, pattern);
-    if (!succeeded(bufSize, sizeof pattern))
+    if (pbo)
+        glBufferDataARB(GL_PIXEL_PACK_BUFFER, sizeof v, NULL, GL_STREAM_COPY);
+
+    data = (pbo == 0) ? v : NULL;
+
+    glGetnPolygonStippleARB(bufSize, data);
+    if (!succeeded(bufSize, sizeof v))
         return PIGLIT_FAIL;
 
     return PIGLIT_PASS;
@@ -178,9 +206,12 @@ test_teximage(int offby)
 static enum piglit_result
 test_teximage1d(int offby)
 {
+    GLuint pbo;
+    glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING_ARB, (GLint*)&pbo);
+
 #define TEST_TEX1D(gltype, enumtype)\
 do {\
-    GL##gltype v[4*width];\
+    GL##gltype v[4*width], *data;\
     GLsizei bufSize = offby + (int)(sizeof v);\
 \
     memset(v, 0, sizeof v);\
@@ -191,7 +222,12 @@ do {\
     if (!piglit_check_gl_error(GL_NO_ERROR))\
         return PIGLIT_FAIL;\
 \
-    glGetnTexImageARB(GL_TEXTURE_1D, 0, GL_RGBA, GL_##enumtype, bufSize, v);\
+    if (pbo)\
+        glBufferDataARB(GL_PIXEL_PACK_BUFFER, sizeof v, NULL, GL_STREAM_COPY);\
+\
+    data = (pbo == 0) ? v : NULL;\
+\
+    glGetnTexImageARB(GL_TEXTURE_1D, 0, GL_RGBA, GL_##enumtype, bufSize, data);\
     if (!succeeded(bufSize, sizeof v))\
         return PIGLIT_FAIL;\
 } while(0)
@@ -206,9 +242,12 @@ do {\
 static enum piglit_result
 test_teximage2d(int offby)
 {
+    GLuint pbo;
+    glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING_ARB, (GLint*)&pbo);
+
 #define TEST_TEX2D(gltype, enumtype)\
 do {\
-    GL##gltype v[4*width*height];\
+    GL##gltype v[4*width*height], *data;\
     GLsizei bufSize = offby + (int)(sizeof v);\
 \
     memset(v, 0, sizeof v);\
@@ -219,7 +258,12 @@ do {\
     if (!piglit_check_gl_error(GL_NO_ERROR))\
         return PIGLIT_FAIL;\
 \
-    glGetnTexImageARB(GL_TEXTURE_2D, 0, GL_RGBA, GL_##enumtype, bufSize, v);\
+    if (pbo)\
+        glBufferDataARB(GL_PIXEL_PACK_BUFFER, sizeof v, NULL, GL_STREAM_COPY);\
+\
+    data = (pbo == 0) ? v : NULL;\
+\
+    glGetnTexImageARB(GL_TEXTURE_2D, 0, GL_RGBA, GL_##enumtype, bufSize, data);\
     if (!succeeded(bufSize, sizeof v))\
         return PIGLIT_FAIL;\
 } while(0)
@@ -234,9 +278,12 @@ do {\
 static enum piglit_result
 test_teximage3d(int offby)
 {
+    GLuint pbo;
+    glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING_ARB, (GLint*)&pbo);
+
 #define TEST_TEX3D(gltype, enumtype)\
 do {\
-    GL##gltype v[4*width*height*depth];\
+    GL##gltype v[4*width*height*depth], *data;\
     GLsizei bufSize = offby + (int)(sizeof v);\
 \
     memset(v, 0, sizeof v);\
@@ -247,7 +294,12 @@ do {\
     if (!piglit_check_gl_error(GL_NO_ERROR))\
         return PIGLIT_FAIL;\
 \
-    glGetnTexImageARB(GL_TEXTURE_3D, 0, GL_RGBA, GL_##enumtype, bufSize, v);\
+    if (pbo)\
+        glBufferDataARB(GL_PIXEL_PACK_BUFFER, sizeof v, NULL, GL_STREAM_COPY);\
+\
+    data = (pbo == 0) ? v : NULL;\
+\
+    glGetnTexImageARB(GL_TEXTURE_3D, 0, GL_RGBA, GL_##enumtype, bufSize, data);\
     if (!succeeded(bufSize, sizeof v))\
         return PIGLIT_FAIL;\
 } while(0)
@@ -262,11 +314,6 @@ do {\
 static enum piglit_result
 test(int offby)
 {
-
-   /* write to client memory, not a bound buffer */
-   glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
-   glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, 0);
-
     if (test_pixelmap(offby) != PIGLIT_PASS)
          return PIGLIT_FAIL;
     if (test_stipple(offby) != PIGLIT_PASS)
@@ -284,26 +331,38 @@ test(int offby)
 enum piglit_result
 piglit_display(void)
 {
+    GLuint pbo;
     int i;
     enum piglit_result res;
 
     glClear(GL_COLOR_BUFFER_BIT);
 
-    /* test negative inputs */
-    res = test(INT_MIN);
-    if (res != PIGLIT_PASS)
-        return res;
+    glGenBuffersARB(1, &pbo);
+    glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, pbo);
+#define TEST() \
+do {\
+    res = test(INT_MIN);\
+    if (res != PIGLIT_PASS)\
+        return res;\
+\
+    res = test(INT_MIN/2);\
+    if (res != PIGLIT_PASS)\
+        return res;\
+\
+    for (i = -9; i <= 1; ++i) {\
+        res = test(i);\
+        if (res != PIGLIT_PASS)\
+            return res;\
+    }\
+} while(0)
 
-    res = test(INT_MIN/2);
-    if (res != PIGLIT_PASS)
-        return res;
+    glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, 0);
+    TEST();
+    glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, pbo);
+    TEST();
 
-    for (i = -9; i <= 1; ++i) {
-        res = test(i);
-        if (res != PIGLIT_PASS)
-            break;
-    }
-
+    glDeleteBuffersARB(1, &pbo);
+    glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB, 0);
     glFinish();
 
     return res;
