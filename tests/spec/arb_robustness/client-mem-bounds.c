@@ -42,6 +42,8 @@ void piglit_init(int argc, char **argv)
     glClearColor(0.2, 0.2, 0.2, 1.0);
 }
 
+static const char *caller;
+
 static GLboolean
 succeeded(GLsizei bufSize, GLsizei required)
 {
@@ -55,9 +57,9 @@ succeeded(GLsizei bufSize, GLsizei required)
         expected = GL_NO_ERROR;
 
     if (!piglit_check_gl_error(expected)) {
-        fprintf(stderr, "(PIXEL_PACK_BUFFER=%u, bufSize = %d,"
+        fprintf(stderr, "%s(PIXEL_PACK_BUFFER=%u, bufSize = %d,"
                         " expected %d bytes to be required)\n",
-                          pbo, bufSize, required);
+                        caller, pbo, bufSize, required);
         return GL_FALSE;
     }
     return GL_TRUE;
@@ -69,7 +71,7 @@ test_pixelmap(int offby)
 #define MAPSIZE 32
     GLuint pbo;
     glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING_ARB, (GLint*)&pbo);
-
+    caller = "glGetnPixelMap*vARB";
 #define TEST_PIXMAP(type, t)\
 do {\
     GL##type v[MAPSIZE], *data;\
@@ -123,6 +125,7 @@ test_readpix(int offby)
 {
     GLuint pbo;
     glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING_ARB, (GLint*)&pbo);
+    caller = "glReadnPixelsARB";
 
 #define TEST_READPIX(gltype, enumtype) \
 do {\
@@ -163,6 +166,7 @@ test_stipple(int offby)
     GLuint pbo;
 
     glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING_ARB, (GLint*)&pbo);
+    caller = "glGetnPolygonStippleARB";
 
     for (i = 0; i < sizeof v; i++)
         v[i] = 0x55;
@@ -193,6 +197,7 @@ test_teximage3d(int offby);
 static enum piglit_result
 test_teximage(int offby)
 {
+    caller = "glGetnTexImageARB";
     if (test_teximage1d(offby) != PIGLIT_PASS)
         return PIGLIT_FAIL;
     if (test_teximage2d(offby) != PIGLIT_PASS)
